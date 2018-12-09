@@ -1,0 +1,92 @@
+import org.ajoberstar.grgit.*
+plugins {
+    id "org.beryx.runtime" version "1.0.0"
+    id "org.springframework.boot" version "2.1.1.RELEASE"
+    id "org.ajoberstar.grgit" version "3.0.0"
+}
+
+sourceCompatibility = 11
+targetCompatibility = 11
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+repositories {
+    maven { url "http://repo.maven.apache.org/maven2" }
+}
+
+ext {
+    cloneDir = "$buildDir/clone"
+    springBootVersion = '2.1.1.RELEASE'
+    imageDirPath = "$buildDir/spring-petclinic-image"
+    imageZipPath = "$buildDir/image-zip/spring-petclinic-image.zip"
+}
+
+defaultTasks 'clean', 'runtimeZip'
+
+dependencies {
+    compile 'org.javassist:javassist:3.23.1-GA'
+    compile 'javax.xml.bind:jaxb-api:2.3.0'
+    compile 'com.sun.activation:javax.activation:1.2.0'
+    compile 'org.jboss.spec.javax.transaction:jboss-transaction-api_1.2_spec:1.1.1.Final'
+
+    compile 'org.hibernate.javax.persistence:hibernate-jpa-2.1-api:1.0.2.Final'
+
+    compile("org.springframework.boot:spring-boot-starter-actuator:$springBootVersion")
+    compile("org.springframework.boot:spring-boot-starter-cache:$springBootVersion")
+    compile("org.springframework.boot:spring-boot-starter-data-jpa:$springBootVersion") {
+      exclude module: 'javax.transaction-api'
+    }
+    compile("org.springframework.boot:spring-boot-starter-web:$springBootVersion") {
+        exclude module: 'tomcat-annotations-api'
+    }
+    compile group: 'org.springframework.boot', name: 'spring-boot-starter-thymeleaf', version:springBootVersion
+
+    compile group: 'javax.cache', name: 'cache-api', version:'1.1.0'
+    compile group: 'org.ehcache', name: 'ehcache', version:'3.5.2'
+    compile group: 'org.webjars', name: 'webjars-locator-core', version:'0.35'
+    compile group: 'org.webjars', name: 'jquery', version:'2.2.4'
+    compile group: 'org.webjars', name: 'jquery-ui', version:'1.11.4'
+    compile group: 'org.webjars', name: 'bootstrap', version:'3.3.6'
+    compile group: 'org.hsqldb', name: 'hsqldb', version:'2.4.1'
+}
+
+mainClassName = 'org.springframework.samples.petclinic.PetClinicApplication'
+
+// This task clones the spring-petclinic project into cloneDir.
+// The commitId is configured in gradle.properties.
+task clonePetclinic {
+    outputs.dir(cloneDir)
+    inputs.property("commitId", commitId)
+    doLast {
+        project.logger.info("Deleting ${cloneDir}...")
+        delete(cloneDir)
+        project.logger.info("Cloning spring-petclinic...")
+        def grgit = Grgit.clone(dir: cloneDir, uri: "https://github.com/spring-projects/spring-petclinic.git")
+        project.logger.debug("grgit: $grgit")
+        project.logger.info("Resolving commit $commitId")
+        def commitObj = grgit.resolve.toCommit(commitId)
+        project.logger.debug("commitObj: $commitObj")
+        grgit.reset(commit: commitObj, mode: 'soft')
+    }
+}
+
+sourceSets.main.java.srcDirs = ["$cloneDir/src/main/java"]
+sourceSets.main.resources.srcDirs = ["$cloneDir/src/main/resources"]
+
+compileJava.dependsOn 'clonePetclinic'
+tasks.jar.enabled = true
+
+runtime {
+    imageDir = file(imageDirPath)
+    imageZip = file(imageZipPath)
+    options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages']
+    modules = ['java.management', 'java.naming', 'java.instrument', 'java.sql', 'jdk.unsupported', 'jdk.security.jgss', 'java.desktop']
+}
+
+tasks.runtime.doLast {
+    copy {
+        from 'resources/css'
+        into "$imageDirPath/bin/static/resources/css"
+    }
+}
